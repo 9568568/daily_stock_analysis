@@ -68,6 +68,7 @@ from datetime import date, datetime, timezone, timedelta
 from src.webui_frontend import prepare_webui_frontend_assets
 from src.config import get_config, Config
 from src.logging_config import setup_logging
+from src.services.stock_list_parser import split_stock_list
 from src.services.stock_code_utils import resolve_index_stock_code_for_analysis
 
 
@@ -582,16 +583,28 @@ def _can_reuse_market_context_for_review(summary: str, region: str) -> bool:
     return len(parts) <= 1
 
 
+def _resolve_daily_market_context_market(market: str, normalized_region: str) -> str:
+    if "," not in normalized_region:
+        return market
+    parts = [item.strip() for item in normalized_region.split(",") if item.strip()]
+    if parts and all(item in {"jp", "kr"} for item in parts):
+        return parts[0]
+    return market
+
+
 def _resolve_daily_market_context_target_date(
     region: str,
     current_time: datetime,
 ) -> date:
     normalized_region = str(region or "cn").strip().lower()
-    market = normalized_region if normalized_region in {"cn", "hk", "us"} else "cn"
+    market = normalized_region if normalized_region in {"cn", "hk", "us", "jp", "kr"} else "cn"
 
     from src.core.trading_calendar import get_effective_trading_date
 
-    return get_effective_trading_date(market, current_time=current_time)
+    return get_effective_trading_date(
+        _resolve_daily_market_context_market(market, normalized_region),
+        current_time=current_time,
+    )
 
 
 def _market_review_report_text(review_result: Any) -> str:
@@ -1271,7 +1284,7 @@ def main() -> int:
     if args.stocks:
         stock_codes = [
             resolve_index_stock_code_for_analysis(c)
-            for c in args.stocks.split(',')
+            for c in split_stock_list(args.stocks)
             if (c or "").strip()
         ]
         logger.info(f"使用命令行指定的股票列表: {stock_codes}")
